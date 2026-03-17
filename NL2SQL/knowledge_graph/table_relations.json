@@ -1,0 +1,9 @@
+[
+  {"from": "dbo.ST_PPTN_R.STCD", "to": "dbo.ST_STBPRP_B.STCD"},
+  {"from": "dbo.ST_RIVER_R.STCD", "to": "dbo.ST_STBPRP_B.STCD"},
+  {"from": "dbo.ST_HIWRCH_B.STCD", "to": "dbo.ST_STBPRP_B.STCD"},
+  {"from": "dbo.ST_RVFCCH_B.STCD", "to": "dbo.ST_STBPRP_B.STCD"},
+  {"from": "dbo.ST_FORECAST_F.STCD", "to": "dbo.ST_STBPRP_B.STCD"},
+
+  {"from": "dbo.ST_STBPRP_B.ADDVCD", "to": "dbo.ST_ADDVCD_D.ADDVCD"}
+]
