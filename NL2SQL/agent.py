@@ -1,8 +1,6 @@
 # NL2SQL智能体
-import os
 import datetime
 import threading
-from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain.agents import initialize_agent
@@ -10,29 +8,28 @@ from langchain.agents import AgentType
 from langchain_core.prompts import ChatPromptTemplate
 from typing import Dict, List
 
-from schema_cache import get_schema
 from sqlalchemy import create_engine
 from sqlalchemy.sql import text
 from tabulate import tabulate
-from rag.retriever import load_retriever, get_field_docs_by_tables,get_rules_by_knowledgecontent
-from rag.path_config import CHROMA_DB_DIR,RULES_CHROMA_DB_DIR
-from knowledge_graph.graph_query import SchemaGraphQuery
-from runtime_context import build_hidden_system_context
+from NL2SQL.config.settings import BASE_URL, DASHSCOPE_APIKEY, DB_URI, NL2SQL_MODEL
+from NL2SQL.knowledge_graph.graph_query import SchemaGraphQuery
+from NL2SQL.rag.path_config import CHROMA_DB_DIR
+from NL2SQL.rag.retriever import get_field_docs_by_tables, get_rules_by_knowledgecontent, load_retriever
+from NL2SQL.runtime_context import build_hidden_system_context
+from NL2SQL.schema_cache import get_schema
 
 __AGENT_INITIALIZED = False
 __AGENT_INIT_LOCK = threading.Lock()
 
 MAX_TOOL_RETURN_CHARS = 5000  # 控制传给 LLM 的结果长度
 
-load_dotenv()
-db_uri = os.getenv("DB_URI")
-engine = create_engine(db_uri)
+engine = create_engine(DB_URI)
 retriever = load_retriever(persist_path=str(CHROMA_DB_DIR))
 
 llm = ChatOpenAI(
-    api_key=os.getenv("DASHSCOPE_APIKEY"),
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    model="qwen3-max",
+    api_key=DASHSCOPE_APIKEY,
+    base_url=BASE_URL,
+    model=NL2SQL_MODEL,
 )
 
 # ===== 惰性初始化（schema + 会话记忆）BEGIN =====

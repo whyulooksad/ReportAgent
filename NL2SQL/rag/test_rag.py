@@ -1,7 +1,7 @@
-from rag.retriever import load_retriever
-from rag.retriever import LocalBGEEmbeddings
+from NL2SQL.rag.retriever import LocalBGEEmbeddings
+from NL2SQL.rag.retriever import load_retriever
 from langchain_community.vectorstores import Chroma
-from rag.path_config import RULES_CHROMA_DB_DIR
+from NL2SQL.rag.path_config import RULES_CHROMA_DB_DIR
 
 
 # 查看 chroma_rules 向量库中的内容

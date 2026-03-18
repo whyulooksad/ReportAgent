@@ -6,8 +6,8 @@ from sentence_transformers import SentenceTransformer
 from langchain_community.vectorstores import Chroma
 from langchain_core.embeddings import Embeddings
 from langchain.schema import Document
-from rag.loader import parse_schema_md_by_table,parse_knowledge_from_db
-from rag.path_config import CHROMA_DB_DIR, HF_MODEL_DIR,RULES_CHROMA_DB_DIR,ensure_dirs
+from NL2SQL.rag.loader import parse_schema_md_by_table, parse_knowledge_from_db
+from NL2SQL.rag.path_config import CHROMA_DB_DIR, HF_MODEL_DIR, RULES_CHROMA_DB_DIR, ensure_dirs
 import shutil
 
 ensure_dirs()

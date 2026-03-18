@@ -7,10 +7,9 @@ from typing import List, Dict, Optional
 
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
-from rag.path_config import CHROMA_DB_DIR
-from rag.retriever import LocalBGEEmbeddings
+from NL2SQL.rag.retriever import LocalBGEEmbeddings
 from pathlib import Path
-from rag.path_config import LTM_CHROMA_DB_DIR
+from NL2SQL.rag.path_config import LTM_CHROMA_DB_DIR
 
 
 @dataclass

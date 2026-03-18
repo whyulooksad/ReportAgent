@@ -1,27 +1,21 @@
-# graph_query.py
-import os
-from dotenv import load_dotenv
 from py2neo import Graph
 
-load_dotenv()
+from NL2SQL.config.settings import NEO4J_PASSWORD, NEO4J_URI, NEO4J_USER, qualify_column_name
 
 class SchemaGraphQuery:
     def __init__(self):
         self.graph = Graph(
-            os.getenv("NEO4J_URI"),
-            auth=(os.getenv("NEO4J_USER"), os.getenv("NEO4J_PASSWORD"))
+            NEO4J_URI,
+            auth=(NEO4J_USER, NEO4J_PASSWORD)
         )
 
     def find_path(self, start_column: str, end_column: str):
         """
         查找两列之间的最短路径（返回列节点路径）
-        自动在表名前加 dbo. 前缀
+        自动补齐 schema 前缀
         """
-        # 确保表名前缀
-        if not start_column.startswith("dbo."):
-            start_column = f"dbo.{start_column}"
-        if not end_column.startswith("dbo."):
-            end_column = f"dbo.{end_column}"
+        start_column = qualify_column_name(start_column)
+        end_column = qualify_column_name(end_column)
 
         query = """
         MATCH p = shortestPath(

@@ -1,4 +1,4 @@
-from schema_engine.utils import examples_to_str, read_json, write_json
+from NL2SQL.schema_engine.utils import examples_to_str, read_json, write_json
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 

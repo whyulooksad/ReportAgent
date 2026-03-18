@@ -1,9 +1,12 @@
 import os
 import json
 import time
-from schema_engine.xiyan import mschema  #
 from pathlib import Path
 import re
+
+from NL2SQL.config.settings import DB_SCHEMA, DB_URI, INCLUDE_TABLES
+from NL2SQL.schema_engine.schema_engine import SchemaEngine
+from sqlalchemy import create_engine
 
 def main():
     project_root = Path(__file__).resolve().parent
@@ -12,14 +15,23 @@ def main():
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / "schema.json"
 
-    print("正在生成 schema 文本（现场连库）...")
-    schema_text = mschema()  # 确保环境变量/连接可用
+    print("正在生成 schema 缓存（现场连库）...")
+    db_engine = create_engine(DB_URI)
+    schema_engine = SchemaEngine(
+        engine=db_engine,
+        schema=DB_SCHEMA,
+        include_tables=INCLUDE_TABLES,
+    )
+    mschema_obj = schema_engine.mschema
+    schema_text = mschema_obj.to_mschema()
+    mschema_dump = mschema_obj.dump()
 
     txt = (schema_text or "").replace("\r\n", "\n")
     tables_count = len(re.findall(r'(?mi)^\s*#\s*Table\s*:', txt))
 
     payload = {
         "schema_data": schema_text,
+        "mschema_dump": mschema_dump,
         "timestamp": int(time.time()),
         "tables_count": tables_count,
     }

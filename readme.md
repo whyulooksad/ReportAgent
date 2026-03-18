@@ -30,7 +30,14 @@ pip install -r requirements.txt
 
 ```
 DB_URI=                                              #业务数据库url
+DB_SCHEMA=dbo                                        #业务schema，默认dbo
 DASHSCOPE_APIKEY=                                    #llm-key
+BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+NL2SQL_MODEL=qwen3-max
+# NL2SQL服务配置
+NL2SQL_HOST=0.0.0.0
+NL2SQL_PORT=8001
+NL2SQL_PATH=/nl2sql
 #向量库相关
 CHROMA_DB_DIR=D:/Work/NL2SQL/rag/chroma_db           #表字段解释向量库
 LTM_CHROMA_DB_DIR=D:/Work/NL2SQL/rag/chroma_ltm      #智能体长期记忆向量库，非必须
@@ -74,5 +81,19 @@ DB_NAME=waterknow                                    #数据库名
 
 # agent使用
 
-完成上述配置后，每次使用NL2SQL  agent只需在确保图数据库运行的情况下运行agent.py
+完成上述配置后：
+
+1. 生成 schema 缓存
+
+```
+python -m NL2SQL.get_schema_cache
+```
+
+2. 启动 NL2SQL 独立服务
+
+```
+python -m NL2SQL.service
+```
+
+服务默认地址为 `http://127.0.0.1:8001/nl2sql`，可通过 `.env` 中的 `NL2SQL_HOST / NL2SQL_PORT / NL2SQL_PATH` 调整。
 

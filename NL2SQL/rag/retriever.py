@@ -5,7 +5,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.embeddings import Embeddings
 from typing import List, Dict
 from langchain_core.documents import Document
-from rag.path_config import CHROMA_DB_DIR, HF_MODEL_DIR,RULES_CHROMA_DB_DIR
+from NL2SQL.rag.path_config import CHROMA_DB_DIR, HF_MODEL_DIR, RULES_CHROMA_DB_DIR
 
 class LocalBGEEmbeddings(Embeddings):
     def __init__(self, model_name=str(HF_MODEL_DIR)):

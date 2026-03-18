@@ -1,4 +1,4 @@
-from rag.ltm_memory import LTMConfig, LongTermMemory
+from NL2SQL.rag.ltm_memory import LTMConfig, LongTermMemory
 
 # 使用默认配置（LTM_CHROMA_DB_DIR/long_term_memory）
 cfg = LTMConfig()

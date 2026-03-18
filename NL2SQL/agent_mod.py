@@ -1,9 +1,10 @@
-# agent_mod.py
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 import logging, traceback, json
-import agent as agent_mod
 import uvicorn
+
+from NL2SQL.agent import invoke
+from NL2SQL.config.settings import SERVICE_HOST, SERVICE_PATH, SERVICE_PORT
 
 app = FastAPI()
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +19,7 @@ class QueryResponse(BaseModel):
 async def health():
     return {"status": "ok"}
 
-@app.post("/nl2sql", response_model=QueryResponse)
+@app.post(SERVICE_PATH, response_model=QueryResponse)
 async def nl2sql(req: QueryRequest, request: Request):
     try:
         q = (req.query or "").strip()
@@ -26,7 +27,7 @@ async def nl2sql(req: QueryRequest, request: Request):
             raise HTTPException(status_code=400, detail="query is empty")
         logging.info(f"[nl2sql] input: {q}")
 
-        result = agent_mod.invoke(q)  # 调用 NL2SQL 逻辑
+        result = invoke(q)
 
         # --- 统一把返回折叠成字符串 ---
         if isinstance(result, dict):
@@ -45,8 +46,7 @@ async def nl2sql(req: QueryRequest, request: Request):
         raise HTTPException(status_code=500, detail=f"Agent error: {e.__class__.__name__}: {str(e)[:400]}")
 
 if __name__ == "__main__":
-    logging.info("Starting FastAPI server on http://0.0.0.0:8001 ...")
-    uvicorn.run("agent_mod:app", host="0.0.0.0", port=8001, reload=True)
-    logging.info("Server started successfully and is running on port 8001.")
+    logging.info(f"Starting FastAPI server on http://{SERVICE_HOST}:{SERVICE_PORT}{SERVICE_PATH} ...")
+    uvicorn.run("NL2SQL.agent_mod:app", host=SERVICE_HOST, port=SERVICE_PORT, reload=True)
 
 
