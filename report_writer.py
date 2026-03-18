@@ -60,6 +60,10 @@ def generate(
     report_type: Optional[str] = None,
     time: Optional[str] = None,
     queries: Optional[List[str]] = None,
+    outline: Optional[List[str]] = None,
+    evidence_summary: Optional[List[Dict[str, Any]]] = None,
+    warnings: Optional[List[str]] = None,
+    errors: Optional[List[str]] = None,
 ) -> str:
     llm, model = _get_llm_client()
     max_chars = int(os.getenv("MAX_CHARS_PER_RESULT") or "8000")
@@ -87,6 +91,10 @@ def generate(
         "report_type": report_type,
         "time": time,
         "queries": qs,
+        "outline": outline or [],
+        "evidence_summary": evidence_summary or [],
+        "warnings": warnings or [],
+        "errors": errors or [],
         "external_query_results": packed_results,
         "template_text": template_text,
     }
