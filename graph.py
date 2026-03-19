@@ -8,20 +8,32 @@ from typing import Any, Callable
 import websockets
 from langgraph.graph import END, START, StateGraph
 
+from helper import route_after_result_review, route_after_scheduler
 from node import (
-    GraphState,
     intent_analysis_node,
     nl2sql_node,
     result_review_node,
-    route_after_result_review,
-    route_after_scheduler,
     scheduler_node,
     template_query_and_split_node,
     write_report_node,
 )
+from state import GraphState
 
 
 def build_graph():
+    """
+    构建主流程图。
+
+    当前流程：
+    START
+      -> intent_analysis
+      -> template_query_and_split
+      -> scheduler
+      -> nl2sql
+      -> result_review
+      -> scheduler / write_report
+      -> END
+    """
     g = StateGraph(GraphState)
 
     g.add_node("intent_analysis", intent_analysis_node)
@@ -56,6 +68,11 @@ def build_graph():
 
 
 def _state_digest(state: GraphState) -> dict[str, Any]:
+    """
+    提取一份适合通过 WebSocket 回传的轻量状态摘要。
+
+    不直接返回完整 state，避免前端收到过大的原始结果文本。
+    """
     return {
         "iterations": state.get("iterations", 0),
         "meaning": state.get("meaning"),
@@ -70,6 +87,7 @@ def _state_digest(state: GraphState) -> dict[str, Any]:
 
 
 async def _send_event(websocket, event_type: str, **payload: Any) -> None:
+    """统一封装 WebSocket 事件发送格式。"""
     await websocket.send(json.dumps({"type": event_type, **payload}, ensure_ascii=False))
 
 
@@ -79,6 +97,11 @@ async def _run_node(
     fn: Callable[[GraphState], GraphState],
     state: GraphState,
 ) -> GraphState:
+    """
+    执行一个节点，并在开始/结束时分别发送阶段事件。
+
+    这样前端可以实时看到当前跑到哪个阶段，而不是等最终结果一次性返回。
+    """
     await _send_event(
         websocket,
         "stage",
@@ -98,6 +121,11 @@ async def _run_node(
 
 
 async def _execute_with_progress(websocket, init: GraphState) -> GraphState:
+    """
+    按当前图结构手动驱动执行，并在每个节点后推送阶段事件。
+
+    这里没有改节点逻辑本身，只是把“可观测性”放到了执行层。
+    """
     state = await _run_node(websocket, "intent_analysis", intent_analysis_node, init)
     state = await _run_node(
         websocket,
@@ -125,6 +153,11 @@ async def _execute_with_progress(websocket, init: GraphState) -> GraphState:
 
 
 async def handle_websocket(websocket):
+    """
+    处理单个 WebSocket 连接。
+
+    每收到一条用户消息，就初始化一份 GraphState 并执行完整流程，期间持续回传阶段状态。
+    """
     print("前端已连接")
     try:
         async for message in websocket:
@@ -173,6 +206,7 @@ async def handle_websocket(websocket):
 
 
 async def start_websocket_server():
+    """启动本地 WebSocket 服务。"""
     port = 8080
     server = await websockets.serve(handle_websocket, "localhost", port)
     print(f"WebSocket 服务器启动在: ws://localhost:{port}")

@@ -4,28 +4,22 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
+from helper import _get_llm_client
 from template_planner import TemplateStore
 
-
-def _get_llm_client() -> tuple[OpenAI, str]:
-    base_url = os.getenv("BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    api_key = (
-        os.getenv("DASHSCOPE_APIKEY")
-        or os.getenv("DASHSCOPE_API_KEY")
-        or os.getenv("OPENAI_API_KEY")
-        or os.getenv("API_KEY")
-        or ""
-    )
-    if not api_key:
-        raise RuntimeError("Missing DASHSCOPE_APIKEY (or DASHSCOPE_API_KEY / OPENAI_API_KEY / API_KEY).")
-    model = os.getenv("REPORT_MODEL") or os.getenv("MODEL") or "qwen3-max"
-    return OpenAI(api_key=api_key, base_url=base_url), model
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 
+if load_dotenv is not None:
+    load_dotenv(dotenv_path=Path(__file__).resolve().with_name(".env"))
 def _cap_text(s: Any, max_chars: int) -> str:
     t = "" if s is None else str(s)
     if len(t) <= max_chars:
@@ -65,7 +59,7 @@ def generate(
     warnings: Optional[List[str]] = None,
     errors: Optional[List[str]] = None,
 ) -> str:
-    llm, model = _get_llm_client()
+    llm, model = _get_llm_client(default_model="qwen3-max")
     max_chars = int(os.getenv("MAX_CHARS_PER_RESULT") or "8000")
 
     store = TemplateStore()

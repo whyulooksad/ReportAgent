@@ -6,20 +6,21 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
+from helper import _get_llm_client
 
-def _get_llm_client() -> tuple[OpenAI, str]:
-    base_url = os.getenv("BASE_URL") or "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    api_key = os.getenv("DASHSCOPE_APIKEY")
-    if not api_key:
-        raise RuntimeError("Missing DASHSCOPE_APIKEY")
-    model = os.getenv("QUESTION_MODEL") or "qwen3-max"
-    return OpenAI(api_key=api_key, base_url=base_url), model
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
 
 
+if load_dotenv is not None:
+    load_dotenv(dotenv_path=Path(__file__).resolve().with_name(".env"))
 def extract_time_hint(user_input: str) -> Optional[str]:
     text = (user_input or "").strip()
     if not text:
@@ -232,7 +233,7 @@ def plan_report(user_input: str) -> Dict[str, Any]:
         return {"template_name": None, "time": None, "queries": []}
 
     time_hint = extract_time_hint(text)
-    llm, model = _get_llm_client()
+    llm, model = _get_llm_client(default_model="qwen3-max")
     store = TemplateStore()
     templates = store.list_templates()
     chosen_name = _select_template(llm, model, text, templates)
