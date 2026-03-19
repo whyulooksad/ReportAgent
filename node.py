@@ -6,16 +6,16 @@ import os
 import re
 from datetime import datetime
 
+import requests
 import report_writer
 import template_planner
 from helper import (
     _get_llm_client,
     append_unique,
-    build_follow_up_query,
     build_report_user_input,
     build_traceability_appendix,
-    call_nl2sql,
     format_query_results,
+    guess_intent_with_regex,
     looks_like_empty_result,
     looks_like_error_result,
     resolve_relative_dates,
@@ -84,16 +84,7 @@ def intent_analysis_node(state: GraphState) -> GraphState:
                 raise RuntimeError(f"Invalid intent from LLM: {meaning}")
         except Exception as exc:
             print(f"[intent_analysis] fallback to regex due to LLM failure: {exc}")
-            if not goal:
-                meaning = "other"
-            elif re.search(r"(生成|撰写|写.{0,8}(报告|快报|周报|月报|简报|通报)|水情(报告|快报|周报|月报))", goal):
-                meaning = "report"
-            elif re.search(r"(查询|多少|最大|最小|水位|雨量|流量|涨水|超警|监测站|站点)", goal):
-                meaning = "query"
-            elif re.search(r"(报告|快报|周报|月报|简报|通报)", goal):
-                meaning = "report"
-            else:
-                meaning = "query"
+            meaning = guess_intent_with_regex(goal)
 
     new["meaning"] = meaning
 
@@ -200,7 +191,7 @@ def nl2sql_node(state: GraphState) -> GraphState:
     实现策略：
     - 如果 current_query 为空，直接透传。
     - 如果 current_query 有值：
-      - 调用 call_nl2sql
+      - 直接调用现有 NL2SQL 服务
       - 将结果以 {query, result} 的形式追加到 results
       - 清空 current_query
 
@@ -212,7 +203,25 @@ def nl2sql_node(state: GraphState) -> GraphState:
     if not q:
         return new
 
-    result = call_nl2sql(q)
+    nl2sql_url = os.getenv("NL2SQL_URL", "http://localhost:8001/nl2sql")
+    print(f"[NL2SQL] execute query: {q}")
+    resp = requests.post(
+        nl2sql_url,
+        json={"query": q},
+        headers={"Content-Type": "application/json"},
+    )
+    if not resp.ok:
+        raise RuntimeError(f"NL2SQL HTTP {resp.status_code}. Body: {resp.text}")
+
+    try:
+        data = resp.json()
+    except Exception:
+        raise RuntimeError(f"NL2SQL returned non-JSON: {resp.text[:500]}")
+
+    result = data.get("output")
+    if result is None:
+        raise RuntimeError(f"NL2SQL JSON has no 'output': {data}")
+
     new.setdefault("results", []).append({"query": q, "result": result})
     new["current_query"] = None
     return new
@@ -223,26 +232,26 @@ def result_review_node(state: GraphState) -> GraphState:
     节点 5：结果检查 / 归纳。
 
     目标：
-    - 检查最新一条查询结果是否可用，并决定下一步是补查还是收尾写作。
+    - 检查最新一条查询结果是否可用，并把结论沉淀为可追溯信息。
 
     实现策略：
     - 只检查 results 中最新追加的一条，避免重复扫描全部历史结果。
+    - 主路径：在节点内部调用 LLM 判断状态，并输出结构化归纳。
+    - 兜底路径：如果 LLM 连接失败、返回异常或解析失败，回退到本地启发式规则。
     - 根据结果文本判断状态：
       - ok: 可正常作为证据
       - empty: 像空结果 / 无数据
       - error: 像异常 / 失败信息
     - 无论状态如何，都会生成一条 evidence_summary 追加到状态中。
     - 如果是 empty 或 error：
-      - 每条原始查询最多自动补查 1 次
-      - 会构造 follow-up 查询重新塞回 plan
-      - 同时记 warnings / errors，避免最终报告里信息丢失
+      - 当前只记录 warnings / errors
+      - 不自动生成补查 query，也不回插 plan
+      - 等补查策略设计清楚后再扩展
 
     写回字段：
     - evidence_summary
     - warnings
     - errors
-    - plan
-    - review_retry_counts
     - done
     """
     new = dict(state)
@@ -253,37 +262,79 @@ def result_review_node(state: GraphState) -> GraphState:
     latest = results[-1]
     query = (latest.get("query") or "").strip()
     result_text = latest.get("result") or ""
-    retry_counts = dict(new.get("review_retry_counts") or {})
 
     status = "ok"
-    if looks_like_error_result(result_text):
-        status = "error"
-    elif looks_like_empty_result(result_text):
-        status = "empty"
+    llm_summary = summarize_result_text(result_text)
+    try:
+        llm, model = _get_llm_client()
+        system = (
+            "你是一个查询结果检查器。"
+            "请根据 query 和 result 判断结果状态，只能返回 ok、empty、error 三类之一。"
+            "同时给出一句简短中文摘要，以及是否建议补查。"
+            "只输出 JSON，例如 "
+            "{\"status\":\"ok\",\"summary\":\"...\",\"needs_follow_up\":false}。"
+        )
+        payload = {
+            "task": "review_query_result",
+            "labels": ["ok", "empty", "error"],
+            "fewshots": [
+                {
+                    "query": "请查询：2025-03-01各站点最大雨量",
+                    "result": "站点A 32.1mm，站点B 28.4mm，站点C 25.0mm。",
+                    "output": {"status": "ok", "summary": "返回了多个站点的雨量结果，可直接作为证据。", "needs_follow_up": False},
+                },
+                {
+                    "query": "请查询：2025-03-01三峡站超警情况",
+                    "result": "未查询到相关数据。",
+                    "output": {"status": "empty", "summary": "结果为空，当前未查到对应数据。", "needs_follow_up": True},
+                },
+                {
+                    "query": "请查询：2025-03-01各站点流量",
+                    "result": "Traceback: SQL execution failed due to timeout.",
+                    "output": {"status": "error", "summary": "查询执行异常，像是服务超时。", "needs_follow_up": True},
+                },
+            ],
+            "query": query,
+            "result": result_text,
+        }
+        resp = llm.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+            ],
+            temperature=0,
+            response_format={"type": "json_object"},
+        )
+        content = (resp.choices[0].message.content or "").strip()
+        obj = json.loads(content)
+        status = str(obj.get("status") or "").strip().lower()
+        if status not in {"ok", "empty", "error"}:
+            raise RuntimeError(f"Invalid review status from LLM: {status}")
+        llm_summary = str(obj.get("summary") or "").strip() or llm_summary
+    except Exception as exc:
+        print(f"[result_review] fallback to heuristic due to LLM failure: {exc}")
+        if looks_like_error_result(result_text):
+            status = "error"
+        elif looks_like_empty_result(result_text):
+            status = "empty"
+        else:
+            status = "ok"
 
     evidence_item = {
         "index": len(results),
         "query": query,
         "status": status,
-        "summary": summarize_result_text(result_text),
+        "summary": llm_summary,
         "supports_conclusion": status == "ok",
     }
     new.setdefault("evidence_summary", []).append(evidence_item)
 
-    retry_count = retry_counts.get(query, 0)
-    if status in {"error", "empty"} and query and retry_count < 1:
-        retry_counts[query] = retry_count + 1
-        follow_up = build_follow_up_query(query, status)
-        new.setdefault("plan", []).insert(0, follow_up)
-        new.setdefault("all_queries_snapshot", []).append(follow_up)
-        new.setdefault("outline", []).append(f"补查：{query}")
-        append_unique(new.setdefault("warnings", []), f"查询“{query}”结果为 {status}，已加入一次补查。")
-    elif status == "empty":
+    if status == "empty":
         append_unique(new.setdefault("warnings", []), f"查询“{query}”未返回有效数据。")
     elif status == "error":
         append_unique(new.setdefault("errors", []), f"查询“{query}”执行异常：{evidence_item['summary']}")
 
-    new["review_retry_counts"] = retry_counts
     new["done"] = not bool(new.get("plan"))
     return new
 

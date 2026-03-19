@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional
 
-import requests
 from openai import OpenAI
 
 from state import GraphState
@@ -20,10 +19,6 @@ except Exception:
 
 if load_dotenv is not None:
     load_dotenv(dotenv_path=Path(__file__).resolve().with_name(".env"))
-
-
-NL2SQL_URL = os.getenv("NL2SQL_URL", "http://localhost:8001/nl2sql")
-
 
 def _get_llm_client(default_model: str = "qwen3-max") -> tuple[OpenAI, str]:
     """
@@ -71,27 +66,69 @@ def resolve_relative_dates(text: str, base: Optional[datetime] = None) -> str:
     return out
 
 
-def call_nl2sql(nl_query: str) -> str:
-    """调用现有 NL2SQL 服务。"""
-    print(f"[NL2SQL] execute query: {nl_query}")
-    resp = requests.post(
-        NL2SQL_URL,
-        json={"query": nl_query},
-        headers={"Content-Type": "application/json"},
-    )
-    if not resp.ok:
-        raise RuntimeError(f"NL2SQL HTTP {resp.status_code}. Body: {resp.text}")
+def guess_intent_with_regex(goal: str) -> str:
+    """节点 1 的本地回退规则：将用户请求粗分为 query / report / other。"""
+    text = (goal or "").strip()
+    if not text:
+        return "other"
+    if re.search(r"(生成|撰写|写.{0,8}(报告|快报|周报|月报|简报|通报)|水情(报告|快报|周报|月报))", text):
+        return "report"
+    if re.search(r"(查询|多少|最大|最小|水位|雨量|流量|涨水|超警|监测站|站点)", text):
+        return "query"
+    if re.search(r"(报告|快报|周报|月报|简报|通报)", text):
+        return "report"
+    return "query"
 
-    try:
-        data = resp.json()
-    except Exception:
-        raise RuntimeError(f"NL2SQL returned non-JSON: {resp.text[:500]}")
 
-    out = data.get("output")
-    if out is None:
-        raise RuntimeError(f"NL2SQL JSON has no 'output': {data}")
-    return str(out)
+def summarize_result_text(text: str, max_len: int = 160) -> str:
+    """压缩结果文本，便于写入 evidence_summary / warnings / errors。"""
+    cleaned = re.sub(r"\s+", " ", (text or "").strip())
+    if not cleaned:
+        return "结果为空"
+    if len(cleaned) <= max_len:
+        return cleaned
+    return cleaned[:max_len] + "..."
 
+
+def looks_like_error_result(text: str) -> bool:
+    """节点 5 的本地回退规则：判断结果是否更像异常信息。"""
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return False
+    error_markers = [
+        "traceback",
+        "exception",
+        "error",
+        "failed",
+        "超时",
+        "失败",
+        "错误",
+        "异常",
+        "http 5",
+        "http 4",
+    ]
+    return any(marker in normalized for marker in error_markers)
+
+
+def looks_like_empty_result(text: str) -> bool:
+    """节点 5 的本地回退规则：判断结果是否更像空结果。"""
+    normalized = (text or "").strip().lower()
+    if not normalized:
+        return True
+    if normalized in {"[]", "{}", "null", "none", "nan"}:
+        return True
+    empty_markers = [
+        "未查询到",
+        "暂无数据",
+        "没有数据",
+        "无结果",
+        "结果为空",
+        "empty result",
+        "no data",
+        "no rows",
+        "0 rows",
+    ]
+    return any(marker in normalized for marker in empty_markers)
 
 def build_report_user_input(user_goal: str, all_queries: List[str]) -> str:
     """将报告目标和查询任务列表组装成写作输入。"""
@@ -114,72 +151,6 @@ def format_query_results(results: List[Dict[str, str]]) -> str:
         r = (item.get("result") or "").strip() or "（无结果）"
         blocks.append(f"## 查询 {i}\n问题：{q}\n\n结果：\n{r}")
     return "\n\n".join(blocks)
-
-
-def looks_like_empty_result(text: str) -> bool:
-    """启发式判断查询结果是否为空。"""
-    normalized = (text or "").strip().lower()
-    if not normalized:
-        return True
-    if normalized in {"[]", "{}", "null", "none", "nan"}:
-        return True
-
-    empty_markers = [
-        "未查询到",
-        "暂无数据",
-        "没有数据",
-        "无结果",
-        "结果为空",
-        "empty result",
-        "no data",
-        "no rows",
-        "0 rows",
-    ]
-    return any(marker in normalized for marker in empty_markers)
-
-
-def looks_like_error_result(text: str) -> bool:
-    """启发式判断查询结果是否像异常/失败信息。"""
-    normalized = (text or "").strip().lower()
-    if not normalized:
-        return False
-
-    error_markers = [
-        "traceback",
-        "exception",
-        "error",
-        "failed",
-        "超时",
-        "失败",
-        "错误",
-        "异常",
-        "http 5",
-        "http 4",
-    ]
-    return any(marker in normalized for marker in error_markers)
-
-
-def summarize_result_text(text: str, max_len: int = 160) -> str:
-    """压缩查询结果文本，便于写入 evidence_summary / errors。"""
-    cleaned = re.sub(r"\s+", " ", (text or "").strip())
-    if not cleaned:
-        return "结果为空"
-    if len(cleaned) <= max_len:
-        return cleaned
-    return cleaned[:max_len] + "..."
-
-
-def build_follow_up_query(query: str, reason: str) -> str:
-    """为异常或空结果生成一条补查任务。"""
-    if reason == "error":
-        return (
-            f"请补查并核验：针对“{query}”，重新检查查询口径、时间范围和筛选条件；"
-            "若仍失败，请明确说明失败原因。"
-        )
-    return (
-        f"请补查并放宽条件：针对“{query}”，确认是否因时间范围、站点范围或过滤条件过严导致无结果；"
-        "若确无数据，请明确说明无数据。"
-    )
 
 
 def append_unique(items: List[str], message: str) -> None:
