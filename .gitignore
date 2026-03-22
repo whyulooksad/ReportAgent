@@ -1,0 +1,29 @@
+# Secrets
+.env
+.env.*
+
+# Private docs
+技术文档.md
+
+# Python cache / build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Test / tool cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# IDE / editor
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
