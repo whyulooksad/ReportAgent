@@ -23,7 +23,7 @@ class GraphState(TypedDict):
     - time: 从用户输入中提取到的时间提示。
     - errors: 查询或归纳阶段确认失败的问题列表。
     - warnings: 空结果、补查、口径风险等非致命提示。
-    - evidence_summary: 每条查询沉淀出的证据摘要，供最终输出说明“哪些结论有数据支撑”。
+    - evidence_summary: 每条查询沉淀出的证据信息，保留 query / status / 原始 result，供最终输出说明“哪些结论有数据支撑”。
     - outline: 报告提纲或查询任务纲要，供写作和最终展示使用。
     - review_retry_counts: 记录每条原始查询已经触发过几次补查，避免无限循环。
     """
@@ -38,8 +38,11 @@ class GraphState(TypedDict):
     all_queries_snapshot: List[str]
     meaning: Optional[str]
     template_name: Optional[str]
+    template_text: Optional[str]
     report_type: Optional[str]
     time: Optional[str]
+    region: Optional[str]
+    query_tasks: List[Dict[str, Any]]
     errors: List[str]
     warnings: List[str]
     evidence_summary: List[Dict[str, Any]]

@@ -44,8 +44,11 @@ def _make_state(query: str, result: str) -> GraphState:
         "all_queries_snapshot": [query],
         "meaning": "query",
         "template_name": None,
+        "template_text": None,
         "report_type": None,
         "time": None,
+        "region": None,
+        "query_tasks": [],
         "errors": [],
         "warnings": [],
         "evidence_summary": [],
@@ -83,9 +86,8 @@ def _run_with_mode(query: str, result: str, mode: str) -> GraphState:
         status = input("请输入要模拟的状态 [ok/empty/error]，默认 ok: ").strip().lower() or "ok"
         if status not in {"ok", "empty", "error"}:
             raise ValueError(f"Unknown mock status: {status}")
-        summary = input("请输入要模拟的摘要，默认自动生成: ").strip() or f"mock summary for {status}"
         fake_content = json.dumps(
-            {"status": status, "summary": summary, "needs_follow_up": status in {"empty", "error"}},
+            {"status": status, "needs_follow_up": status in {"empty", "error"}},
             ensure_ascii=False,
         )
         with patch("node._get_llm_client", return_value=(_FakeLLM(fake_content), "fake-model")):

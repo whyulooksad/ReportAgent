@@ -45,8 +45,11 @@ def _make_state(goal: str) -> GraphState:
         "all_queries_snapshot": [],
         "meaning": None,
         "template_name": None,
+        "template_text": None,
         "report_type": None,
         "time": None,
+        "region": None,
+        "query_tasks": [],
         "errors": [],
         "warnings": [],
         "evidence_summary": [],
@@ -85,19 +88,22 @@ def _guess_regex_intent(goal: str) -> str:
 
 def _run_with_mode(goal: str, mode: str) -> GraphState:
     state = _make_state(goal)
+    fake_context = {"report_type": None, "time": None, "region": None}
 
     if mode == "real":
         return intent_analysis_node(state)
 
     if mode == "fallback":
         with patch("node._get_llm_client", side_effect=RuntimeError("forced fallback")):
-            return intent_analysis_node(state)
+            with patch("node.extract_request_context", return_value=fake_context):
+                return intent_analysis_node(state)
 
     if mode == "mock":
         intent = _guess_regex_intent(goal)
         fake_content = json.dumps({"intent": intent}, ensure_ascii=False)
         with patch("node._get_llm_client", return_value=(_FakeLLM(fake_content), "fake-model")):
-            return intent_analysis_node(state)
+            with patch("node.extract_request_context", return_value=fake_context):
+                return intent_analysis_node(state)
 
     raise ValueError(f"Unknown mode: {mode}")
 

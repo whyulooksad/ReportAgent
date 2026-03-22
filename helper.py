@@ -32,7 +32,7 @@ def _get_llm_client(default_model: str = "qwen3-max") -> tuple[OpenAI, str]:
     api_key = (
         os.getenv("DASHSCOPE_APIKEY"))
     if not api_key:
-        raise RuntimeError("Missing DASHSCOPE_APIKEY (or DASHSCOPE_API_KEY / OPENAI_API_KEY / API_KEY).")
+        raise RuntimeError("Missing DASHSCOPE_APIKEY")
 
     model = os.getenv("MODEL") or default_model
 
@@ -170,15 +170,15 @@ def build_traceability_appendix(state: GraphState) -> str:
 
     evidence_items = state.get("evidence_summary") or []
     if evidence_items:
-        lines.append("## 证据摘要")
+        lines.append("## 查询证据")
         for item in evidence_items:
             idx = item.get("index")
             query = item.get("query") or "（空）"
             status = item.get("status") or "unknown"
-            summary = item.get("summary") or ""
             lines.append(f"- [{idx}] {status} | {query}")
-            if summary:
-                lines.append(f"  摘要：{summary}")
+            raw_result = (item.get("result") or "").strip()
+            if raw_result:
+                lines.append(f"  原始结果：{raw_result}")
 
     warnings = state.get("warnings") or []
     if warnings:

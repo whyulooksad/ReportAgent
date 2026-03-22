@@ -8,7 +8,6 @@ from datetime import datetime
 
 import requests
 import report_writer
-import template_planner
 from helper import (
     _get_llm_client,
     append_unique,
@@ -22,6 +21,11 @@ from helper import (
     summarize_result_text,
 )
 from state import GraphState
+from template_planner import (
+    DEFAULT_REGION,
+    extract_request_context,
+    plan_template_queries,
+)
 
 
 def intent_analysis_node(state: GraphState) -> GraphState:
@@ -41,6 +45,15 @@ def intent_analysis_node(state: GraphState) -> GraphState:
     - 如果是 other，会提前标记 done，由写作节点兜底返回。
     """
     new = dict(state)
+    new["warnings"] = list(state.get("warnings") or [])
+    new["errors"] = list(state.get("errors") or [])
+    new["results"] = list(state.get("results") or [])
+    new["plan"] = list(state.get("plan") or [])
+    new["all_queries_snapshot"] = list(state.get("all_queries_snapshot") or [])
+    new["query_tasks"] = list(state.get("query_tasks") or [])
+    new["evidence_summary"] = list(state.get("evidence_summary") or [])
+    new["outline"] = list(state.get("outline") or [])
+    new["review_retry_counts"] = dict(state.get("review_retry_counts") or {})
     goal = (new.get("goal") or "").strip()
     meaning = "other"
 
@@ -86,14 +99,21 @@ def intent_analysis_node(state: GraphState) -> GraphState:
             print(f"[intent_analysis] fallback to regex due to LLM failure: {exc}")
             meaning = guess_intent_with_regex(goal)
 
+    context = extract_request_context(goal)
     new["meaning"] = meaning
+    new["report_type"] = context.get("report_type")
+    new["region"] = context.get("region")
 
     if meaning == "query":
         query = resolve_relative_dates(f"请查询：{goal}", base=datetime.now())
         new["plan"] = [query]
         new["all_queries_snapshot"] = [query]
         new["outline"] = [goal]
-        new["time"] = template_planner.extract_time_hint(goal)
+        new["time"] = context.get("time")
+    elif meaning == "report":
+        new["time"] = context.get("time")
+        if not new.get("region"):
+            new["region"] = DEFAULT_REGION
     elif meaning == "other":
         new["done"] = True
         new["outline"] = ["暂不支持的请求类型"]
@@ -111,9 +131,9 @@ def template_query_and_split_node(state: GraphState) -> GraphState:
     实现策略：
     - 如果当前不是 report，直接透传，不做修改。
     - 如果上游已经生成过 plan，就不重复规划，只补齐快照字段。
-    - 如果还没有 plan，则调用 template_planner.plan_report：
+    - 如果还没有 plan，则调用本地模板规划函数：
       1. 选模板
-      2. 从模板中拆出多条自然语言查询任务
+      2. 结合模板正文和 schema 生成自然语言查询任务
       3. 对拆出的查询做相对时间归一化
 
     写回字段：
@@ -124,6 +144,15 @@ def template_query_and_split_node(state: GraphState) -> GraphState:
     - outline: 初始报告提纲，当前直接复用查询任务列表
     """
     new = dict(state)
+    new["warnings"] = list(state.get("warnings") or [])
+    new["errors"] = list(state.get("errors") or [])
+    new["results"] = list(state.get("results") or [])
+    new["plan"] = list(state.get("plan") or [])
+    new["all_queries_snapshot"] = list(state.get("all_queries_snapshot") or [])
+    new["query_tasks"] = list(state.get("query_tasks") or [])
+    new["evidence_summary"] = list(state.get("evidence_summary") or [])
+    new["outline"] = list(state.get("outline") or [])
+    new["review_retry_counts"] = dict(state.get("review_retry_counts") or {})
     if new.get("meaning") != "report":
         return new
 
@@ -134,8 +163,13 @@ def template_query_and_split_node(state: GraphState) -> GraphState:
             new["outline"] = list(new["plan"])
         return new
 
-    plan_obj = template_planner.plan_report(new["goal"])
-    print("[DEBUG] template_planner:", plan_obj)
+    plan_obj = plan_template_queries(
+        goal=new["goal"],
+        report_type=new.get("report_type"),
+        time=new.get("time"),
+        region=new.get("region"),
+    )
+    print("[DEBUG] template_query_agent:", plan_obj)
 
     queries: list[str] = []
     for item in plan_obj.get("queries") or []:
@@ -143,10 +177,16 @@ def template_query_and_split_node(state: GraphState) -> GraphState:
             queries.append(resolve_relative_dates(item.strip(), base=datetime.now()))
 
     new["template_name"] = plan_obj.get("template_name")
+    new["template_text"] = plan_obj.get("template_text")
     new["time"] = plan_obj.get("time")
+    new["region"] = plan_obj.get("region")
+    new["report_type"] = plan_obj.get("report_type")
+    new["query_tasks"] = list(plan_obj.get("query_tasks") or [])
     new["plan"] = list(queries)
     new["all_queries_snapshot"] = list(queries)
-    new["outline"] = list(queries)
+    new["outline"] = list(plan_obj.get("outline") or queries)
+    for warning in plan_obj.get("warnings") or []:
+        append_unique(new["warnings"], warning)
     return new
 
 
@@ -236,7 +276,7 @@ def result_review_node(state: GraphState) -> GraphState:
 
     实现策略：
     - 只检查 results 中最新追加的一条，避免重复扫描全部历史结果。
-    - 主路径：在节点内部调用 LLM 判断状态，并输出结构化归纳。
+    - 主路径：在节点内部调用 LLM 判断状态。
     - 兜底路径：如果 LLM 连接失败、返回异常或解析失败，回退到本地启发式规则。
     - 根据结果文本判断状态：
       - ok: 可正常作为证据
@@ -264,15 +304,13 @@ def result_review_node(state: GraphState) -> GraphState:
     result_text = latest.get("result") or ""
 
     status = "ok"
-    llm_summary = summarize_result_text(result_text)
     try:
         llm, model = _get_llm_client()
         system = (
             "你是一个查询结果检查器。"
             "请根据 query 和 result 判断结果状态，只能返回 ok、empty、error 三类之一。"
-            "同时给出一句简短中文摘要，以及是否建议补查。"
             "只输出 JSON，例如 "
-            "{\"status\":\"ok\",\"summary\":\"...\",\"needs_follow_up\":false}。"
+            "{\"status\":\"ok\",\"needs_follow_up\":false}。"
         )
         payload = {
             "task": "review_query_result",
@@ -281,17 +319,17 @@ def result_review_node(state: GraphState) -> GraphState:
                 {
                     "query": "请查询：2025-03-01各站点最大雨量",
                     "result": "站点A 32.1mm，站点B 28.4mm，站点C 25.0mm。",
-                    "output": {"status": "ok", "summary": "返回了多个站点的雨量结果，可直接作为证据。", "needs_follow_up": False},
+                    "output": {"status": "ok", "needs_follow_up": False},
                 },
                 {
                     "query": "请查询：2025-03-01三峡站超警情况",
                     "result": "未查询到相关数据。",
-                    "output": {"status": "empty", "summary": "结果为空，当前未查到对应数据。", "needs_follow_up": True},
+                    "output": {"status": "empty", "needs_follow_up": True},
                 },
                 {
                     "query": "请查询：2025-03-01各站点流量",
                     "result": "Traceback: SQL execution failed due to timeout.",
-                    "output": {"status": "error", "summary": "查询执行异常，像是服务超时。", "needs_follow_up": True},
+                    "output": {"status": "error", "needs_follow_up": True},
                 },
             ],
             "query": query,
@@ -311,7 +349,6 @@ def result_review_node(state: GraphState) -> GraphState:
         status = str(obj.get("status") or "").strip().lower()
         if status not in {"ok", "empty", "error"}:
             raise RuntimeError(f"Invalid review status from LLM: {status}")
-        llm_summary = str(obj.get("summary") or "").strip() or llm_summary
     except Exception as exc:
         print(f"[result_review] fallback to heuristic due to LLM failure: {exc}")
         if looks_like_error_result(result_text):
@@ -325,7 +362,7 @@ def result_review_node(state: GraphState) -> GraphState:
         "index": len(results),
         "query": query,
         "status": status,
-        "summary": llm_summary,
+        "result": result_text,
         "supports_conclusion": status == "ok",
     }
     new.setdefault("evidence_summary", []).append(evidence_item)
@@ -333,7 +370,7 @@ def result_review_node(state: GraphState) -> GraphState:
     if status == "empty":
         append_unique(new.setdefault("warnings", []), f"查询“{query}”未返回有效数据。")
     elif status == "error":
-        append_unique(new.setdefault("errors", []), f"查询“{query}”执行异常：{evidence_item['summary']}")
+        append_unique(new.setdefault("errors", []), f"查询“{query}”执行异常：{summarize_result_text(result_text)}")
 
     new["done"] = not bool(new.get("plan"))
     return new
