@@ -15,6 +15,16 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Local vector DB artifacts
+NL2SQL/rag/chroma_db/
+NL2SQL/rag/chroma_ltm/
+NL2SQL/rag/chroma_rules/
+
+# Local rag test scripts
+NL2SQL/rag/test.py
+NL2SQL/rag/test_ltm_rag.py
+NL2SQL/rag/test_rag.py
+
 # Virtual envs
 .venv/
 venv/
