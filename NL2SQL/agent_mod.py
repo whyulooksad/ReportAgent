@@ -46,7 +46,9 @@ async def nl2sql(req: QueryRequest, request: Request):
         raise HTTPException(status_code=500, detail=f"Agent error: {e.__class__.__name__}: {str(e)[:400]}")
 
 if __name__ == "__main__":
-    logging.info(f"Starting FastAPI server on http://{SERVICE_HOST}:{SERVICE_PORT}{SERVICE_PATH} ...")
-    uvicorn.run("NL2SQL.agent_mod:app", host=SERVICE_HOST, port=SERVICE_PORT, reload=True)
+    logging.info("Starting FastAPI server on http://0.0.0.0:8001 ...")
+    uvicorn.run("agent_mod:app", host="0.0.0.0", port=8001, reload=True)
+    logging.info("Server started successfully and is running on port 8001.")
+
 
 

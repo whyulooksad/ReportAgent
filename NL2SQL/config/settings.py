@@ -10,7 +10,7 @@ load_dotenv()
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 
 DB_URI = os.getenv("DB_URI", "")
-DB_SCHEMA = os.getenv("DB_SCHEMA", "dbo")
+DB_SCHEMA = os.getenv("DB_SCHEMA", "")
 
 INCLUDE_TABLES = [
     "ST_TABLE_D",
