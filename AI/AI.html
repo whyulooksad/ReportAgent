@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大模型对话</title>
+    <link rel="stylesheet" href="AI.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <p style="font-size: 30px;font-weight: 900;">🤖 大模型对话</p>
+        </div>
+
+        <div id="connectionStatus" class="connection-status status-disconnected">
+            未连接 - 请检查WebSocket服务器配置
+        </div>
+
+        <div class="main-content">
+            <!-- WebSocket配置 -->
+            <div class="config-section">
+                <div class="config-row">
+                    <label>WebSocket地址:</label>
+                    <input type="text" id="wsUrl" value="ws://localhost:8080/ws" placeholder="ws://localhost:8080/ws">
+                </div>
+                <div class="config-row">
+                    <button onclick="connectWebSocket()" id="connectBtn">连接</button>
+                    <button onclick="disconnectWebSocket()" id="disconnectBtn" disabled>断开连接</button>
+                </div>
+            </div>
+
+            <!-- 加载状态 -->
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                大模型正在思考中，请稍候...
+            </div>
+
+            <!-- 输出区域 -->
+            <div class="output-section">
+                <div class="title-and-button">
+                    <div class="section-title">📝 大模型回复</div>
+                    <div class="button-container">
+                        <button onclick="clearResponse()" class="clear-button">清空回复</button>
+                    </div>
+                </div>
+                <textarea 
+                    id="responseBox" 
+                    placeholder="大模型的回复将显示在这里...&#10;&#10;连接成功并发送问题后，大模型将在此处返回回答内容。"
+                    readonly
+                ></textarea>
+                
+            </div>
+            <!-- 输入区域 -->
+            <div class="input-section">
+                <div class="section-title">💬 提交问题</div>
+                <textarea 
+                    id="questionBox" 
+                    placeholder="请输入您要询问大模型的问题...&#10;&#10;例如：&#10;• 请介绍一下人工智能的发展历史&#10;• 帮我写一个Python函数来计算斐波那契数列&#10;• 分析一下当前科技行业的发展趋势"
+                ></textarea>
+                <div class="button-container">
+                    <button onclick="sendMessage()" id="sendBtn" disabled>发送问题</button>
+                    <button onclick="clearQuestion()" class="clear-button">清空</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="AI.js"></script>
+</body>
+</html>
